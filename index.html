@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图像视频生成</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f4f4f4;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+        }
+        form {
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+            background: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #5cb85c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #4cae4c;
+        }
+        #output {
+            margin-top: 20px;
+            text-align: center;
+        }
+        img, video {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>图像视频生成</h1>
+    <form id="promptForm">
+        <label for="prompts">Enter your prompt:</label>
+        <input type="text" id="prompts" name="prompts" required>
+        <button type="submit">Submit</button>
+        <button onclick="sendPrompt()">生成</button>
+    </form>
+    <div id="response"></div>
+    <div id="output">
+        <!-- 图片和视频将在这里展示 -->
+    </div>
+
+    <script>
+        document.getElementById('promptForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const prompts = document.getElementById('prompts').value;
+            fetch(`http://127.0.0.1:5000/prompts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ prompts: prompts })
+            }).then(response => response.json())
+                .then(data => console.log(data))
+                .catch(error => console.error('Error:', error));
+        });
+
+        const comfyui_url = "http://127.0.0.1:8188";
+        let ws = null;
+
+        function sendPrompt() {
+            const client_id = generateUUID();
+            const prompt_id = sendRequest(client_id);
+            if (prompt_id) {
+                connectWebSocket(client_id, prompt_id);
+            }
+                // 发送请求到 Flask 应用的 /autorun 端点
+            fetch(`http://127.0.0.1:5000/autorun`)
+                .then(response => response.text())
+                .then(data => console.log(data))
+                .catch(error => console.error('Error:', error));
+            // WebSocket 连接关闭后调用 displayFiles
+            ws.onclose = function(event) {
+                console.log("WebSocket连接已关闭");
+                displayFiles(); // 调用函数展示文件
+            };
+        }
+
+        function generateUUID() {
+            return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+        }
+
+        function sendRequest(client_id) {
+            const workflow_api = {
+                "node1": {
+                    "class_type": "KSampler",
+                    "inputs": {
+                        "seed": Math.floor(Math.random() * (0xffffffffffffffff + 1)),
+                        "timestamp": Math.floor(Date.now() / 1000)
+                    }
+                }
+            };
+
+            const data = {
+                "client_id": client_id,
+                "prompt": workflow_api
+            };
+
+            return axios.post(`${comfyui_url}/prompt`, data)
+                .then(response => {
+                    console.log("请求成功发送！");
+                    console.log("任务ID:", response.data.prompt_id);
+                    return response.data.prompt_id;
+                })
+                .catch(error => {
+                    console.error("请求失败：", error.response.status);
+                    console.error("错误信息：", error.response.data);
+                    return null;
+                });
+        }
+
+        function connectWebSocket(client_id, prompt_id) {
+            const parsed_url = new URL(comfyui_url);
+            const ws_scheme = parsed_url.protocol === "https:" ? "wss" : "ws";
+            const ws_url = `${ws_scheme}://${parsed_url.host}/ws?client_id=${client_id}`;
+
+            ws = new WebSocket(ws_url);
+
+            ws.onopen = function(event) {
+                console.log("WebSocket连接已建立");
+            };
+
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                console.log("收到消息：", data);
+
+                if (data.type === "status") {
+                    document.getElementById("output").innerText = `队列中剩余任务数： ${data.data.status.exec_info.queue_remaining}`;
+                } else if (data.type === "execution_start") {
+                    document.getElementById("output").innerText = `任务开始执行： ${data.data.prompt_id}`;
+                } else if (data.type === "executing") {
+                    document.getElementById("output").innerText = `正在执行节点： ${data.data.node}`;
+                } else if (data.type === "progress") {
+                    document.getElementById("output").innerText = `进度： ${data.data.value}/${data.data.max}`;
+                } else if (data.type === "executed") {
+                    document.getElementById("output").innerText = `任务执行完成： ${data.data.prompt_id}`;
+                }
+            };
+
+            ws.onclose = function(event) {
+                console.log("WebSocket连接已关闭");
+            };
+
+            ws.onerror = function(event) {
+                console.error("WebSocket错误：", event);
+            };
+        }
+        function displayFiles() {
+            fetch(`http://127.0.0.1:5000/get_files`)
+                .then(response => response.json())
+                .then(data => {
+                    const outputDiv = document.getElementById('output');
+                    outputDiv.innerHTML = ''; // 清空之前的输出
+
+                    // 展示图片
+                    if (data.image) {
+                        const img = document.createElement('img');
+                        img.src = `http://127.0.0.1:8188/view?filename=${encodeURIComponent(data.image)}&type=output`;
+                        img.alt = 'Generated Image';
+                        outputDiv.appendChild(img);
+                    }
+
+                    // 展示视频
+                    if (data.video) {
+                        const videoElement = document.createElement('video');
+                        videoElement.controls = true;
+                        videoElement.src = `http://127.0.0.1:8188/view?filename=${encodeURIComponent(data.video)}&type=output`;
+                        outputDiv.appendChild(videoElement);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+    </script>
+
+</body>
+</html>
