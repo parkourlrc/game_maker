@@ -9,8 +9,9 @@
 我们目前写了简单的前端界面，如图所示：
 ![简易前端图片](./example/simple_fount_end_image.png)
 
-同时我们也有一些制作案例：
+同时我们也有一些制作案例，视频案例欢迎到example文件夹中自行食用：
 ![简易案例](./example/lion_RMBG.png)
 ![简易案例](./example/man_RMBG.png)
 
+临时搞得游戏界面demo参照："https://www.bilibili.com/video/BV1sc8se5EAH/?spm_id_from=333.999.0.0" 
 
