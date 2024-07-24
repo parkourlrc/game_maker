@@ -1,4 +1,4 @@
-#**pixi——An AI-driven game material generator**
+# pixi——An AI-driven game material generator
 
 **AdventureX2024 年轻人的第一场黑客松**
 
